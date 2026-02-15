@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My Personal Inventory</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0e0c;
+      --surface: #1a1915;
+      --surface2: #242320;
+      --border: #2e2d29;
+      --accent: #e8c76d;
+      --text: #f0ece3;
+      --text-muted: #7a7567;
+      --text-dim: #4a4840;
+      --film: #6d8fe8;
+      --book: #6dc98a;
+      --doc: #c96d9a;
+      --item: #e8896d;
+      --bin: #e86d6d;
+      --radius: 12px;
+      --transition: 0.2s ease;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0; opacity: 0.4;
+    }
+
+    /* ── HEADER ── */
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,14,12,0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 clamp(16px,4vw,48px);
+    }
+
+    .header-inner {
+      max-width: 1400px; margin: 0 auto;
+      display: flex; align-items: center; gap: 12px; height: 64px;
+    }
+
+    .logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem; font-weight: 900;
+      letter-spacing: -0.02em; color: var(--accent);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .logo span { color: var(--text-muted); font-weight: 400; }
+
+    .search-wrap { flex: 1; position: relative; max-width: 420px; }
+    .search-wrap svg {
+      position: absolute; left: 14px; top: 50%;
+      transform: translateY(-50%); color: var(--text-muted); pointer-events: none;
+    }
+    #searchInput {
+      width: 100%; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 50px;
+      padding: 9px 16px 9px 42px; color: var(--text);
+      font-family: inherit; font-size: 0.9rem; outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    #searchInput::placeholder { color: var(--text-dim); }
+    #searchInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232,199,109,0.12); }
+
+    /* header buttons */
+    .btn-add {
+      margin-left: auto; background: var(--accent); color: #0f0e0c;
+      border: none; border-radius: 50px; padding: 9px 20px;
+      font-family: inherit; font-weight: 500; font-size: 0.88rem;
+      cursor: pointer; display: flex; align-items: center; gap: 7px;
+      white-space: nowrap; transition: transform var(--transition), background var(--transition);
+      flex-shrink: 0;
+    }
+    .btn-add:hover { transform: translateY(-1px); background: #f0d47a; }
+
+    .btn-io {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 50px; padding: 8px 14px;
+      font-family: inherit; font-weight: 500; font-size: 0.82rem; color: var(--text-muted);
+      cursor: pointer; display: flex; align-items: center; gap: 6px;
+      white-space: nowrap; transition: all var(--transition); flex-shrink: 0;
+    }
+    .btn-io:hover { border-color: var(--accent); color: var(--accent); background: rgba(232,199,109,0.06); }
+    .btn-io.bin-btn:hover { border-color: var(--bin); color: var(--bin); background: rgba(232,109,109,0.06); }
+    .btn-io.bin-btn.active { border-color: var(--bin); color: var(--bin); background: rgba(232,109,109,0.1); }
+
+    /* dropdown for export */
+    .export-wrap { position: relative; flex-shrink: 0; }
+    .export-menu {
+      position: absolute; top: calc(100% + 8px); right: 0;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 6px; min-width: 160px;
+      display: none; flex-direction: column; gap: 2px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 50;
+    }
+    .export-wrap:hover .export-menu,
+    .export-wrap.open .export-menu { display: flex; }
+    .export-opt {
+      background: transparent; border: none; border-radius: 7px;
+      padding: 8px 12px; color: var(--text-muted); font-family: inherit;
+      font-size: 0.85rem; cursor: pointer; text-align: left;
+      display: flex; align-items: center; gap: 8px;
+      transition: background var(--transition), color var(--transition);
+    }
+    .export-opt:hover { background: var(--surface2); color: var(--text); }
+
+    /* sync dot */
+    .sync-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-dim); flex-shrink: 0; transition: background 0.4s;
+    }
+    .sync-dot.syncing { background: var(--accent); animation: pulse 1s infinite; }
+    .sync-dot.ok      { background: #6dc98a; }
+    .sync-dot.error   { background: #e86d6d; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* toast */
+    .toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 50px; padding: 10px 22px;
+      font-size: 0.85rem; color: var(--text);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s, transform 0.25s; z-index: 300; white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── LAYOUT ── */
+    .container {
+      max-width: 1400px; margin: 0 auto;
+      padding: clamp(16px,3vw,40px) clamp(16px,4vw,48px);
+      position: relative; z-index: 1;
+    }
+
+    /* ── BIN BANNER ── */
+    .bin-banner {
+      display: none;
+      align-items: center; gap: 12px;
+      background: rgba(232,109,109,0.08);
+      border: 1px solid rgba(232,109,109,0.25);
+      border-radius: 10px; padding: 12px 18px;
+      margin-bottom: 20px; font-size: 0.88rem; color: var(--bin);
+    }
+    .bin-banner.visible { display: flex; }
+    .bin-empty-btn {
+      margin-left: auto; background: transparent;
+      border: 1px solid var(--bin); border-radius: 6px;
+      padding: 4px 12px; color: var(--bin); font-family: inherit;
+      font-size: 0.8rem; cursor: pointer; transition: all var(--transition);
+    }
+    .bin-empty-btn:hover { background: var(--bin); color: #fff; }
+
+    /* stats bar */
+    .stats-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; }
+    .stat-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 50px; padding: 6px 14px 6px 10px;
+      font-size: 0.83rem; cursor: pointer;
+      transition: border-color var(--transition), background var(--transition);
+      user-select: none;
+    }
+    .stat-pill:hover,.stat-pill.active { border-color: var(--pill-color,var(--accent)); background: var(--surface2); }
+    .stat-pill.active { box-shadow: 0 0 0 2px color-mix(in srgb, var(--pill-color,var(--accent)) 25%, transparent); }
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pill-color,var(--accent)); flex-shrink: 0; }
+    .stat-count { background: var(--surface2); border-radius: 50px; padding: 1px 8px; font-size: 0.73rem; color: var(--text-muted); margin-left: 2px; }
+
+    /* sort bar */
+    .sort-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+    .sort-label { font-size: 0.8rem; color: var(--text-muted); }
+    .sort-btn {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 12px; color: var(--text-muted);
+      font-family: inherit; font-size: 0.8rem; cursor: pointer; transition: all var(--transition);
+    }
+    .sort-btn.active,.sort-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(232,199,109,0.06); }
+    .results-count { margin-left: auto; font-size: 0.8rem; color: var(--text-dim); }
+
+    /* grid */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px,1fr)); gap: 14px; }
+
+    /* card */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+      display: flex; flex-direction: column;
+      transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+      animation: fadeUp 0.3s ease both;
+    }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+    .card:hover { transform: translateY(-3px); border-color: var(--card-color,var(--accent)); box-shadow: 0 8px 28px rgba(0,0,0,0.4); }
+    .card.bin-card { opacity: 0.75; }
+    .card.bin-card:hover { border-color: var(--bin); }
+
+    .card-thumb {
+      height: 130px; background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2.8rem; position: relative;
+    }
+    .card-category {
+      position: absolute; top: 10px; right: 10px;
+      background: rgba(15,14,12,0.85); border: 1px solid var(--card-color,var(--accent));
+      color: var(--card-color,var(--accent)); border-radius: 50px;
+      padding: 2px 10px; font-size: 0.68rem; font-weight: 500;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+
+    .card-body { padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 5px; }
+    .card-title { font-family: 'Playfair Display', serif; font-size: 0.97rem; font-weight: 700; line-height: 1.3; }
+    .card-meta { font-size: 0.78rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 5px; }
+    .card-meta span { display: flex; align-items: center; gap: 3px; }
+    .card-notes { font-size: 0.78rem; color: var(--text-dim); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .status-badge { display: inline-flex; align-items: center; border-radius: 50px; padding: 2px 10px; font-size: 0.7rem; font-weight: 500; border: 1px solid; }
+
+    .card-footer { padding: 9px 14px; border-top: 1px solid var(--border); display: flex; gap: 7px; align-items: center; }
+    .card-footer-actions { margin-left: auto; display: flex; gap: 5px; }
+
+    .icon-btn {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; width: 28px; height: 28px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-muted); text-decoration: none;
+      transition: all var(--transition);
+    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(232,199,109,0.08); }
+    .icon-btn.delete:hover { border-color: #e86d6d; color: #e86d6d; background: rgba(232,109,109,0.08); }
+    .icon-btn.restore:hover { border-color: #6dc98a; color: #6dc98a; background: rgba(109,201,138,0.08); }
+
+    /* deleted date tag */
+    .deleted-tag {
+      font-size: 0.68rem; color: var(--bin); background: rgba(232,109,109,0.1);
+      border: 1px solid rgba(232,109,109,0.2); border-radius: 50px;
+      padding: 2px 8px;
+    }
+
+    /* empty / loading */
+    .empty { grid-column:1/-1; text-align:center; padding:72px 20px; color:var(--text-dim); }
+    .empty-icon { font-size:3rem; margin-bottom:14px; opacity:0.4; }
+    .empty h3 { font-family:'Playfair Display',serif; font-size:1.3rem; color:var(--text-muted); margin-bottom:6px; }
+    .loading { grid-column:1/-1; text-align:center; padding:72px 20px; color:var(--text-muted); }
+    .spinner { width:30px; height:30px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.7s linear infinite; margin:0 auto 14px; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+
+    /* modal */
+    .modal-overlay {
+      position: fixed; inset:0; z-index:200;
+      background:rgba(0,0,0,0.7); backdrop-filter:blur(6px);
+      display:flex; align-items:center; justify-content:center; padding:20px;
+      opacity:0; pointer-events:none; transition:opacity 0.25s;
+    }
+    .modal-overlay.open { opacity:1; pointer-events:all; }
+    .modal {
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:16px; width:100%; max-width:520px; max-height:90vh;
+      overflow-y:auto; transform:translateY(20px); transition:transform 0.25s;
+    }
+    .modal-overlay.open .modal { transform:translateY(0); }
+    .modal-header { padding:18px 22px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    .modal-title { font-family:'Playfair Display',serif; font-size:1.15rem; font-weight:700; }
+    .modal-close { background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:1.3rem; line-height:1; transition:color var(--transition); }
+    .modal-close:hover { color:var(--text); }
+    .modal-body { padding:18px 22px; display:flex; flex-direction:column; gap:14px; }
+
+    label { font-size:0.82rem; color:var(--text-muted); display:block; margin-bottom:4px; }
+
+    input[type="text"],input[type="number"],select,textarea {
+      width:100%; background:var(--surface2); border:1px solid var(--border);
+      border-radius:8px; padding:9px 13px; color:var(--text);
+      font-family:inherit; font-size:0.88rem; outline:none;
+      transition:border-color var(--transition),box-shadow var(--transition);
+    }
+    input:focus,select:focus,textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(232,199,109,0.1); }
+    textarea { resize:vertical; min-height:66px; }
+    select option { background:var(--surface2); }
+
+    .form-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .category-tabs { display:flex; gap:7px; flex-wrap:wrap; }
+    .cat-tab {
+      border:1px solid var(--border); border-radius:8px; padding:7px 13px;
+      cursor:pointer; font-size:0.83rem; transition:all var(--transition);
+      background:transparent; color:var(--text-muted); font-family:inherit;
+      display:flex; align-items:center; gap:5px;
+    }
+    .cat-tab.selected { border-color:var(--tab-color); background:color-mix(in srgb, var(--tab-color) 12%, transparent); color:var(--tab-color); }
+
+    .modal-footer { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:9px; justify-content:flex-end; }
+    .btn { border:none; border-radius:8px; padding:9px 18px; font-family:inherit; font-size:0.88rem; font-weight:500; cursor:pointer; transition:all var(--transition); }
+    .btn:disabled { opacity:0.5; cursor:not-allowed; transform:none !important; }
+    .btn-ghost { background:transparent; border:1px solid var(--border); color:var(--text-muted); }
+    .btn-ghost:hover { border-color:var(--text-muted); color:var(--text); }
+    .btn-primary { background:var(--accent); color:#0f0e0c; }
+    .btn-primary:hover:not(:disabled) { background:#f0d47a; transform:translateY(-1px); }
+
+    ::-webkit-scrollbar { width:5px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+    @media (max-width:640px) {
+      .form-row { grid-template-columns:1fr; }
+      .logo span { display:none; }
+      .btn-io .io-label { display:none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">Vault <span>/ My Inventory</span></div>
+    <div class="search-wrap">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input id="searchInput" type="text" placeholder="Search your collection…"/>
+    </div>
+    <div class="sync-dot" id="syncDot" title="Sync status"></div>
+
+    <!-- Export dropdown -->
+    <div class="export-wrap" id="exportWrap">
+      <button class="btn-io" onclick="toggleExportMenu()">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="io-label">Export</span>
+        <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="export-menu" id="exportMenu">
+        <button class="export-opt" onclick="exportJSON()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Backup (.json)
+        </button>
+        <button class="export-opt" onclick="exportExcel()">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          Excel (.xlsx)
+        </button>
+      </div>
+    </div>
+
+    <!-- Bin toggle -->
+    <button class="btn-io bin-btn" id="binToggle" onclick="toggleBin()" title="Bin (deleted items)">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+      <span class="io-label">Bin</span>
+      <span id="binCount" style="display:none; background:var(--bin); color:#fff; border-radius:50px; padding:1px 7px; font-size:0.72rem; margin-left:2px;"></span>
+    </button>
+
+    <button class="btn-add" onclick="openModal()">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      Add Item
+    </button>
+  </div>
+</header>
+
+<div class="toast" id="toast"></div>
+
+<div class="container">
+  <!-- Bin banner -->
+  <div class="bin-banner" id="binBanner">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+    Showing deleted items — restore or permanently delete them below.
+    <button class="bin-empty-btn" onclick="emptyBin()">Empty Bin</button>
+  </div>
+
+  <div class="stats-bar" id="statsBar"></div>
+
+  <div class="sort-bar">
+    <span class="sort-label">Sort:</span>
+    <button class="sort-btn active" data-sort="date">Recent</button>
+    <button class="sort-btn" data-sort="title">A–Z</button>
+    <span class="results-count" id="resultsCount"></span>
+  </div>
+
+  <div class="grid" id="grid">
+    <div class="loading"><div class="spinner"></div>Connecting to your vault…</div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="handleOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Add New Item</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label>Category</label>
+        <div class="category-tabs">
+          <button class="cat-tab" data-cat="film" style="--tab-color:var(--film)" onclick="selectCat('film')">🎬 Film / TV</button>
+          <button class="cat-tab" data-cat="book" style="--tab-color:var(--book)" onclick="selectCat('book')">📚 Book</button>
+          <button class="cat-tab" data-cat="doc"  style="--tab-color:var(--doc)"  onclick="selectCat('doc')">📄 Document</button>
+          <button class="cat-tab" data-cat="item" style="--tab-color:var(--item)" onclick="selectCat('item')">📦 Item</button>
+        </div>
+      </div>
+      <div>
+        <label>Title *</label>
+        <input type="text" id="fTitle" placeholder="e.g. The Godfather, Dune, Invoice 2024…"/>
+      </div>
+      <div>
+        <label id="creatorLabel">Author / Director</label>
+        <input type="text" id="fCreator" placeholder="e.g. Francis Ford Coppola"/>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Year</label>
+          <input type="number" id="fYear" placeholder="e.g. 1972" min="1800" max="2100"/>
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="fStatus">
+            <option value="">— select —</option>
+            <option>Watched</option><option>Want to watch</option><option>Watching</option>
+            <option>Read</option><option>Reading</option><option>Want to read</option>
+            <option>Owned</option><option>Lent out</option><option>Archived</option><option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Genre / Tags</label>
+        <input type="text" id="fTags" placeholder="e.g. Thriller, Sci-fi, Invoice"/>
+      </div>
+      <div>
+        <label>URL</label>
+        <input type="text" id="fURL" placeholder="e.g. https://www.imdb.com/title/…"/>
+      </div>
+      <div id="fieldProducer" style="display:none">
+        <label>Producer</label>
+        <input type="text" id="fProducer" placeholder="e.g. Steven Spielberg"/>
+      </div>
+      <div id="fieldBook" style="display:none">
+        <div class="form-row">
+          <div><label>Publisher</label><input type="text" id="fPublisher" placeholder="e.g. Penguin Books"/></div>
+          <div><label>ISBN</label><input type="text" id="fISBN" placeholder="e.g. 978-3-16-148410-0"/></div>
+        </div>
+      </div>
+      <div>
+        <label>Notes</label>
+        <textarea id="fNotes" placeholder="Any extra details, thoughts, location…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn" onclick="saveItem()">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── SUPABASE ──────────────────────────────────────────
+  const SUPABASE_URL = 'https://jikhpewxfwwaqjnylvjv.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imppa2hwZXd4Znd3YXFqbnlsdmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNTI0MTAsImV4cCI6MjA4NjcyODQxMH0.Z1m_v9I-iGLaGhSgTo89INFVHDw1MaQLigwab0K0Fq0';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── STATE ─────────────────────────────────────────────
+  let items     = [];   // active items
+  let binItems  = [];   // soft-deleted items
+  let showingBin = false;
+  let editingId  = null;
+  let currentCat = 'film';
+  let activeFilter = 'all';
+  let activeSort   = 'date';
+
+  const CAT_META = {
+    film: { label:'Film/TV',  color:'var(--film)', emoji:'🎬' },
+    book: { label:'Book',     color:'var(--book)', emoji:'📚' },
+    doc:  { label:'Document', color:'var(--doc)',  emoji:'📄' },
+    item: { label:'Item',     color:'var(--item)', emoji:'📦' },
+  };
+
+  const STATUS_COLORS = {
+    'Watched':'#6d8fe8','Read':'#6dc98a','Owned':'#e8c76d',
+    'Want to watch':'#a0a0a0','Want to read':'#a0a0a0',
+    'Watching':'#c97d4e','Reading':'#c97d4e',
+    'Lent out':'#c96d9a','Archived':'#4a4840','Other':'#7a7567',
+  };
+
+  // ── SYNC DOT ──────────────────────────────────────────
+  function setSyncDot(s) {
+    const d = document.getElementById('syncDot');
+    d.className = 'sync-dot ' + s;
+    d.title = {syncing:'Saving…', ok:'All changes saved ✓', error:'Connection error'}[s] || '';
+  }
+
+  // ── DB HELPERS ────────────────────────────────────────
+  async function loadItems() {
+    setSyncDot('syncing');
+    const [activeRes, binRes] = await Promise.all([
+      db.from('items').select('*').eq('deleted', false).order('created_at', { ascending: false }),
+      db.from('items').select('*').eq('deleted', true).order('deleted_at',  { ascending: false }),
+    ]);
+    if (activeRes.error || binRes.error) {
+      setSyncDot('error');
+      const msg = (activeRes.error || binRes.error).message;
+      showToast('❌ ' + msg);
+      document.getElementById('grid').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>Connection error</h3><p>${msg}</p></div>`;
+      return;
+    }
+    items    = activeRes.data || [];
+    binItems = binRes.data   || [];
+    setSyncDot('ok');
+    updateBinBadge();
+    render();
+  }
+
+  async function insertItem(payload) {
+    setSyncDot('syncing');
+    const { data, error } = await db.from('items').insert([{ ...payload, deleted: false }]).select().single();
+    if (error) { setSyncDot('error'); showToast('❌ Save failed: ' + error.message); return null; }
+    setSyncDot('ok'); return data;
+  }
+
+  async function updateItem(id, payload) {
+    setSyncDot('syncing');
+    const { error } = await db.from('items').update(payload).eq('id', id);
+    if (error) { setSyncDot('error'); showToast('❌ Update failed: ' + error.message); return false; }
+    setSyncDot('ok'); return true;
+  }
+
+  // Soft delete — move to bin
+  async function softDelete(id) {
+    setSyncDot('syncing');
+    const { error } = await db.from('items').update({ deleted: true, deleted_at: new Date().toISOString() }).eq('id', id);
+    if (error) { setSyncDot('error'); showToast('❌ ' + error.message); return false; }
+    setSyncDot('ok'); return true;
+  }
+
+  // Restore from bin
+  async function restoreItem(id) {
+    setSyncDot('syncing');
+    const { error } = await db.from('items').update({ deleted: false, deleted_at: null }).eq('id', id);
+    if (error) { setSyncDot('error'); showToast('❌ ' + error.message); return false; }
+    setSyncDot('ok'); return true;
+  }
+
+  // Permanently delete
+  async function hardDelete(id) {
+    setSyncDot('syncing');
+    const { error } = await db.from('items').delete().eq('id', id);
+    if (error) { setSyncDot('error'); showToast('❌ ' + error.message); return false; }
+    setSyncDot('ok'); return true;
+  }
+
+  // Empty entire bin
+  async function emptyBin() {
+    if (!binItems.length) return;
+    if (!confirm(`Permanently delete all ${binItems.length} item(s) in the bin? This cannot be undone.`)) return;
+    setSyncDot('syncing');
+    const { error } = await db.from('items').delete().eq('deleted', true);
+    if (error) { setSyncDot('error'); showToast('❌ ' + error.message); return; }
+    setSyncDot('ok');
+    showToast('🗑 Bin emptied permanently.');
+    await loadItems();
+  }
+
+  // ── REAL-TIME ─────────────────────────────────────────
+  db.channel('items-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => loadItems())
+    .subscribe();
+
+  // ── BIN UI ────────────────────────────────────────────
+  function updateBinBadge() {
+    const cnt = document.getElementById('binCount');
+    if (binItems.length > 0) {
+      cnt.textContent = binItems.length;
+      cnt.style.display = '';
+    } else {
+      cnt.style.display = 'none';
+    }
+  }
+
+  function toggleBin() {
+    showingBin = !showingBin;
+    activeFilter = 'all';
+    document.getElementById('binToggle').classList.toggle('active', showingBin);
+    document.getElementById('binBanner').classList.toggle('visible', showingBin);
+    render();
+  }
+
+  // ── RENDER ────────────────────────────────────────────
+  function render() { renderStats(); renderGrid(); }
+
+  function renderStats() {
+    const source = showingBin ? binItems : items;
+    const counts = { film:0, book:0, doc:0, item:0 };
+    source.forEach(i => { if (counts[i.cat] !== undefined) counts[i.cat]++; });
+    let html = `<div class="stat-pill ${activeFilter==='all'?'active':''}" style="--pill-color:var(--accent)" onclick="setFilter('all')">
+      <div class="stat-dot"></div> All <span class="stat-count">${source.length}</span></div>`;
+    Object.entries(CAT_META).forEach(([k,v]) => {
+      html += `<div class="stat-pill ${activeFilter===k?'active':''}" style="--pill-color:${v.color}" onclick="setFilter('${k}')">
+        <div class="stat-dot" style="background:${v.color}"></div>${v.label}
+        <span class="stat-count">${counts[k]||0}</span></div>`;
+    });
+    document.getElementById('statsBar').innerHTML = html;
+  }
+
+  function renderGrid() {
+    const source = showingBin ? binItems : items;
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    let list = source.filter(i => {
+      const matchCat = activeFilter === 'all' || i.cat === activeFilter;
+      const matchQ   = !q ||
+        (i.title||'').toLowerCase().includes(q) ||
+        (i.creator||'').toLowerCase().includes(q) ||
+        (i.tags||'').toLowerCase().includes(q) ||
+        (i.notes||'').toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+
+    if (activeSort === 'title') list.sort((a,b) => (a.title||'').localeCompare(b.title||''));
+
+    document.getElementById('resultsCount').textContent =
+      list.length === source.length ? `${source.length} items` : `${list.length} of ${source.length}`;
+
+    const grid = document.getElementById('grid');
+    if (!list.length) {
+      const empty = showingBin
+        ? { icon:'🗑', h:'Bin is empty', p:'Items you delete will appear here.' }
+        : items.length
+          ? { icon:'🔍', h:'No results found', p:'Try a different search or filter.' }
+          : { icon:'📭', h:'Your vault is empty', p:'Click "+ Add Item" to start your collection!' };
+      grid.innerHTML = `<div class="empty"><div class="empty-icon">${empty.icon}</div><h3>${empty.h}</h3><p>${empty.p}</p></div>`;
+      return;
+    }
+
+    grid.innerHTML = list.map(item => {
+      const meta = CAT_META[item.cat] || CAT_META.item;
+      const sc   = STATUS_COLORS[item.status] || 'var(--text-muted)';
+      const deletedDate = item.deleted_at ? new Date(item.deleted_at).toLocaleDateString() : '';
+
+      const actions = showingBin
+        ? `<button class="icon-btn restore" title="Restore" onclick="handleRestore('${item.id}')">
+             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+           </button>
+           <button class="icon-btn delete" title="Delete permanently" onclick="handleHardDelete('${item.id}')">
+             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+           </button>`
+        : `${item.url ? `<a class="icon-btn" href="${esc(item.url)}" target="_blank" rel="noopener" title="Open URL">
+             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+           </a>` : ''}
+           <button class="icon-btn" title="Edit" onclick="editItem('${item.id}')">
+             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+           </button>
+           <button class="icon-btn delete" title="Move to Bin" onclick="handleSoftDelete('${item.id}')">
+             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+           </button>`;
+
+      return `<div class="card ${showingBin ? 'bin-card' : ''}" style="--card-color:${showingBin ? 'var(--bin)' : meta.color}">
+        <div class="card-thumb">
+          <span>${meta.emoji}</span>
+          <div class="card-category" style="${showingBin ? 'border-color:var(--bin);color:var(--bin)' : ''}">${meta.label}</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">${esc(item.title)}</div>
+          <div class="card-meta">
+            ${item.creator   ? `<span>✦ ${esc(item.creator)}</span>` : ''}
+            ${item.producer  ? `<span>🎥 ${esc(item.producer)}</span>` : ''}
+            ${item.publisher ? `<span>🏢 ${esc(item.publisher)}</span>` : ''}
+            ${item.isbn      ? `<span>ISBN: ${esc(item.isbn)}</span>` : ''}
+            ${item.year      ? `<span>📅 ${esc(item.year)}</span>` : ''}
+            ${item.tags      ? `<span>🏷 ${esc(item.tags)}</span>` : ''}
+          </div>
+          ${item.notes ? `<div class="card-notes">${esc(item.notes)}</div>` : ''}
+        </div>
+        <div class="card-footer">
+          ${showingBin
+            ? `<span class="deleted-tag">Deleted ${deletedDate}</span>`
+            : item.status
+              ? `<span class="status-badge" style="color:${sc};border-color:${sc};background:${sc}18">${esc(item.status)}</span>`
+              : '<span></span>'}
+          <div class="card-footer-actions">${actions}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── ACTIONS ───────────────────────────────────────────
+  async function handleSoftDelete(id) {
+    if (!confirm('Move this item to the Bin?')) return;
+    const ok = await softDelete(id);
+    if (ok) { showToast('🗑 Moved to Bin.'); await loadItems(); }
+  }
+
+  async function handleRestore(id) {
+    const ok = await restoreItem(id);
+    if (ok) { showToast('✅ Item restored!'); await loadItems(); }
+  }
+
+  async function handleHardDelete(id) {
+    if (!confirm('Permanently delete this item? This cannot be undone.')) return;
+    const ok = await hardDelete(id);
+    if (ok) { showToast('🗑 Permanently deleted.'); await loadItems(); }
+  }
+
+  // ── FILTER / SORT ─────────────────────────────────────
+  function setFilter(f) { activeFilter = f; render(); }
+
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSort = btn.dataset.sort;
+      renderGrid();
+    });
+  });
+
+  document.getElementById('searchInput').addEventListener('input', renderGrid);
+
+  // close export menu on outside click
+  document.addEventListener('click', e => {
+    const wrap = document.getElementById('exportWrap');
+    if (!wrap.contains(e.target)) wrap.classList.remove('open');
+  });
+  function toggleExportMenu() {
+    document.getElementById('exportWrap').classList.toggle('open');
+  }
+
+  // ── MODAL ─────────────────────────────────────────────
+  function openModal() {
+    editingId = null;
+    document.getElementById('modalTitle').textContent = 'Add New Item';
+    ['fTitle','fCreator','fYear','fStatus','fTags','fURL','fNotes','fProducer','fPublisher','fISBN']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    selectCat('film');
+    document.getElementById('modalOverlay').classList.add('open');
+    setTimeout(() => document.getElementById('fTitle').focus(), 100);
+  }
+
+  function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+  function handleOverlayClick(e) { if (e.target.id === 'modalOverlay') closeModal(); }
+
+  function selectCat(cat) {
+    currentCat = cat;
+    document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('selected'));
+    document.querySelector(`.cat-tab[data-cat="${cat}"]`).classList.add('selected');
+    const labels = { film:'Director / Creator', book:'Author', doc:'Author / Source', item:'Brand / Maker' };
+    document.getElementById('creatorLabel').textContent = labels[cat] || 'Creator';
+    document.getElementById('fieldProducer').style.display = cat === 'film' ? '' : 'none';
+    document.getElementById('fieldBook').style.display     = cat === 'book' ? '' : 'none';
+  }
+
+  async function saveItem() {
+    const title = document.getElementById('fTitle').value.trim();
+    if (!title) { document.getElementById('fTitle').focus(); return; }
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+
+    const payload = {
+      cat:       currentCat, title,
+      creator:   document.getElementById('fCreator').value.trim(),
+      year:      document.getElementById('fYear').value.trim(),
+      status:    document.getElementById('fStatus').value,
+      tags:      document.getElementById('fTags').value.trim(),
+      notes:     document.getElementById('fNotes').value.trim(),
+      url:       document.getElementById('fURL').value.trim(),
+      producer:  currentCat === 'film' ? document.getElementById('fProducer').value.trim() : '',
+      publisher: currentCat === 'book' ? document.getElementById('fPublisher').value.trim() : '',
+      isbn:      currentCat === 'book' ? document.getElementById('fISBN').value.trim() : '',
+    };
+
+    if (editingId) {
+      const ok = await updateItem(editingId, payload);
+      if (ok) { showToast('✅ Item updated!'); closeModal(); await loadItems(); }
+    } else {
+      const result = await insertItem(payload);
+      if (result) { showToast('✅ Item added!'); closeModal(); await loadItems(); }
+    }
+    btn.disabled = false; btn.textContent = 'Save Item';
+  }
+
+  function editItem(id) {
+    const item = items.find(i => String(i.id) === String(id));
+    if (!item) return;
+    editingId = id;
+    document.getElementById('modalTitle').textContent = 'Edit Item';
+    selectCat(item.cat || 'film');
+    document.getElementById('fTitle').value     = item.title     || '';
+    document.getElementById('fCreator').value   = item.creator   || '';
+    document.getElementById('fYear').value      = item.year      || '';
+    document.getElementById('fStatus').value    = item.status    || '';
+    document.getElementById('fTags').value      = item.tags      || '';
+    document.getElementById('fNotes').value     = item.notes     || '';
+    document.getElementById('fURL').value       = item.url       || '';
+    document.getElementById('fProducer').value  = item.producer  || '';
+    document.getElementById('fPublisher').value = item.publisher || '';
+    document.getElementById('fISBN').value      = item.isbn      || '';
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  // ── EXPORT ────────────────────────────────────────────
+  function exportJSON() {
+    document.getElementById('exportWrap').classList.remove('open');
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = `vault-inventory-${today()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('✅ JSON backup exported!');
+  }
+
+  function exportExcel() {
+    document.getElementById('exportWrap').classList.remove('open');
+    if (!items.length) { showToast('Nothing to export!'); return; }
+
+    // Build rows grouped by category on separate sheets
+    const wb = XLSX.utils.book_new();
+    const categories = ['film','book','doc','item'];
+    const catLabels  = { film:'Films & TV', book:'Books', doc:'Documents', item:'Items' };
+
+    // All items sheet
+    const allRows = items.map(i => formatRow(i));
+    const allHeaders = getHeaders('all');
+    const wsAll = XLSX.utils.aoa_to_sheet([allHeaders, ...allRows]);
+    styleSheet(wsAll, allHeaders);
+    XLSX.utils.book_append_sheet(wb, wsAll, 'All Items');
+
+    // Per-category sheets
+    categories.forEach(cat => {
+      const catItems = items.filter(i => i.cat === cat);
+      if (!catItems.length) return;
+      const headers = getHeaders(cat);
+      const rows    = catItems.map(i => formatRow(i, cat));
+      const ws      = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      styleSheet(ws, headers);
+      XLSX.utils.book_append_sheet(wb, ws, catLabels[cat]);
+    });
+
+    XLSX.writeFile(wb, `vault-inventory-${today()}.xlsx`);
+    showToast('✅ Excel file exported!');
+  }
+
+  function getHeaders(cat) {
+    const base = ['Title','Category','Creator','Year','Status','Tags','URL','Notes'];
+    if (cat === 'film') return ['Title','Director / Creator','Producer','Year','Status','Tags','URL','Notes'];
+    if (cat === 'book') return ['Title','Author','Publisher','ISBN','Year','Status','Tags','URL','Notes'];
+    if (cat === 'all')  return ['Title','Category','Creator','Producer','Publisher','ISBN','Year','Status','Tags','URL','Notes'];
+    return base;
+  }
+
+  function formatRow(i, cat) {
+    const catLabel = (CAT_META[i.cat]||{}).label || i.cat;
+    if (cat === 'film') return [i.title, i.creator, i.producer, i.year, i.status, i.tags, i.url, i.notes].map(v => v||'');
+    if (cat === 'book') return [i.title, i.creator, i.publisher, i.isbn, i.year, i.status, i.tags, i.url, i.notes].map(v => v||'');
+    if (cat === 'all')  return [i.title, catLabel, i.creator, i.producer, i.publisher, i.isbn, i.year, i.status, i.tags, i.url, i.notes].map(v => v||'');
+    return [i.title, catLabel, i.creator, i.year, i.status, i.tags, i.url, i.notes].map(v => v||'');
+  }
+
+  function styleSheet(ws, headers) {
+    // Set column widths
+    ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 4, 18) }));
+    // Bold header row
+    headers.forEach((_, ci) => {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: ci });
+      if (!ws[addr]) return;
+      ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F0ECE3' } } };
+    });
+  }
+
+  function today() { return new Date().toISOString().slice(0,10); }
+
+  // ── TOAST ─────────────────────────────────────────────
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // ── INIT ──────────────────────────────────────────────
+  // NOTE: The 'deleted' and 'deleted_at' columns must exist in your Supabase 'items' table.
+  // Run this SQL in Supabase SQL Editor if you haven't already:
+  //   ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted boolean DEFAULT false;
+  //   ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+  loadItems();
+</script>
+</body>
+</html>
