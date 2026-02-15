@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>My Personal Inventory</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0e0c;
+      --surface: #1a1915;
+      --surface2: #242320;
+      --border: #2e2d29;
+      --accent: #e8c76d;
+      --text: #f0ece3;
+      --text-muted: #7a7567;
+      --text-dim: #4a4840;
+      --film: #6d8fe8;
+      --book: #6dc98a;
+      --doc: #c96d9a;
+      --item: #e8896d;
+      --radius: 12px;
+      --transition: 0.2s ease;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.4;
+    }
+
+    header {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,14,12,0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 clamp(16px,4vw,48px);
+    }
+
+    .header-inner {
+      max-width: 1400px; margin: 0 auto;
+      display: flex; align-items: center; gap: 16px; height: 64px;
+    }
+
+    .logo {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.5rem; font-weight: 900;
+      letter-spacing: -0.02em; color: var(--accent);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .logo span { color: var(--text-muted); font-weight: 400; }
+
+    .search-wrap { flex: 1; position: relative; max-width: 480px; }
+    .search-wrap svg {
+      position: absolute; left: 14px; top: 50%;
+      transform: translateY(-50%); color: var(--text-muted); pointer-events: none;
+    }
+
+    #searchInput {
+      width: 100%; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 50px;
+      padding: 10px 16px 10px 42px; color: var(--text);
+      font-family: inherit; font-size: 0.9rem; outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    #searchInput::placeholder { color: var(--text-dim); }
+    #searchInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232,199,109,0.12); }
+
+    .btn-add {
+      margin-left: auto; background: var(--accent); color: #0f0e0c;
+      border: none; border-radius: 50px; padding: 10px 22px;
+      font-family: inherit; font-weight: 500; font-size: 0.9rem;
+      cursor: pointer; display: flex; align-items: center; gap: 8px;
+      white-space: nowrap; transition: transform var(--transition), background var(--transition);
+    }
+    .btn-add:hover { transform: translateY(-1px); background: #f0d47a; }
+
+    .btn-io {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 50px; padding: 9px 16px; font-family: inherit;
+      font-weight: 500; font-size: 0.85rem; color: var(--text-muted);
+      cursor: pointer; display: flex; align-items: center; gap: 7px;
+      white-space: nowrap; transition: all var(--transition);
+    }
+    .btn-io:hover { border-color: var(--accent); color: var(--accent); background: rgba(232,199,109,0.06); }
+
+    .sync-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-dim); flex-shrink: 0;
+      transition: background 0.4s ease;
+    }
+    .sync-dot.syncing { background: var(--accent); animation: pulse 1s infinite; }
+    .sync-dot.ok      { background: #6dc98a; }
+    .sync-dot.error   { background: #e86d6d; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 50px; padding: 10px 22px;
+      font-size: 0.85rem; color: var(--text);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 300; white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    .container {
+      max-width: 1400px; margin: 0 auto;
+      padding: clamp(16px,3vw,40px) clamp(16px,4vw,48px);
+      position: relative; z-index: 1;
+    }
+
+    .stats-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 28px; }
+
+    .stat-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 50px; padding: 6px 16px 6px 10px;
+      font-size: 0.85rem; cursor: pointer;
+      transition: border-color var(--transition), background var(--transition);
+      user-select: none;
+    }
+    .stat-pill:hover, .stat-pill.active { border-color: var(--pill-color,var(--accent)); background: var(--surface2); }
+    .stat-pill.active { box-shadow: 0 0 0 2px color-mix(in srgb, var(--pill-color,var(--accent)) 25%, transparent); }
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pill-color,var(--accent)); flex-shrink: 0; }
+    .stat-count { background: var(--surface2); border-radius: 50px; padding: 1px 8px; font-size: 0.75rem; color: var(--text-muted); margin-left: 2px; }
+
+    .sort-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .sort-label { font-size: 0.8rem; color: var(--text-muted); }
+    .sort-btn {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 12px; color: var(--text-muted);
+      font-family: inherit; font-size: 0.8rem; cursor: pointer; transition: all var(--transition);
+    }
+    .sort-btn.active, .sort-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(232,199,109,0.06); }
+    .results-count { margin-left: auto; font-size: 0.8rem; color: var(--text-dim); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap: 16px; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+      display: flex; flex-direction: column;
+      transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+      animation: fadeUp 0.3s ease both;
+    }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+    .card:hover { transform: translateY(-3px); border-color: var(--card-color,var(--accent)); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+
+    .card-thumb {
+      height: 140px; background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 3rem; position: relative;
+    }
+    .card-category {
+      position: absolute; top: 10px; right: 10px;
+      background: rgba(15,14,12,0.85); border: 1px solid var(--card-color,var(--accent));
+      color: var(--card-color,var(--accent)); border-radius: 50px;
+      padding: 2px 10px; font-size: 0.7rem; font-weight: 500;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
+
+    .card-body { padding: 14px 16px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .card-title { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; line-height: 1.3; }
+    .card-meta { font-size: 0.8rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 6px; }
+    .card-meta span { display: flex; align-items: center; gap: 3px; }
+    .card-notes { font-size: 0.8rem; color: var(--text-dim); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    .status-badge { display: inline-flex; align-items: center; border-radius: 50px; padding: 2px 10px; font-size: 0.72rem; font-weight: 500; border: 1px solid; }
+
+    .card-footer { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+    .card-footer-actions { margin-left: auto; display: flex; gap: 6px; }
+
+    .icon-btn {
+      background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; width: 30px; height: 30px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--text-muted); text-decoration: none;
+      transition: all var(--transition);
+    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(232,199,109,0.08); }
+    .icon-btn.delete:hover { border-color: #e86d6d; color: #e86d6d; background: rgba(232,109,109,0.08); }
+
+    .empty { grid-column: 1/-1; text-align: center; padding: 80px 20px; color: var(--text-dim); }
+    .empty-icon { font-size: 3rem; margin-bottom: 16px; opacity: 0.4; }
+    .empty h3 { font-family: 'Playfair Display', serif; font-size: 1.4rem; color: var(--text-muted); margin-bottom: 8px; }
+
+    .loading { grid-column: 1/-1; text-align: center; padding: 80px 20px; color: var(--text-muted); }
+    .spinner { width: 32px; height: 32px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin: 0 auto 16px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; width: 100%; max-width: 520px; max-height: 90vh;
+      overflow-y: auto; transform: translateY(20px); transition: transform 0.25s ease;
+    }
+    .modal-overlay.open .modal { transform: translateY(0); }
+
+    .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .modal-title { font-family: 'Playfair Display', serif; font-size: 1.2rem; font-weight: 700; }
+    .modal-close { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.4rem; line-height: 1; transition: color var(--transition); }
+    .modal-close:hover { color: var(--text); }
+
+    .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+
+    label { font-size: 0.82rem; color: var(--text-muted); display: block; margin-bottom: 5px; }
+
+    input[type="text"], input[type="number"], select, textarea {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; color: var(--text);
+      font-family: inherit; font-size: 0.9rem; outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(232,199,109,0.1); }
+    textarea { resize: vertical; min-height: 70px; }
+    select option { background: var(--surface2); }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .category-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .cat-tab {
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px;
+      cursor: pointer; font-size: 0.85rem; transition: all var(--transition);
+      background: transparent; color: var(--text-muted); font-family: inherit;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .cat-tab.selected { border-color: var(--tab-color); background: color-mix(in srgb, var(--tab-color) 12%, transparent); color: var(--tab-color); }
+
+    .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+
+    .btn { border: none; border-radius: 8px; padding: 10px 20px; font-family: inherit; font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: all var(--transition); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
+    .btn-ghost:hover { border-color: var(--text-muted); color: var(--text); }
+    .btn-primary { background: var(--accent); color: #0f0e0c; }
+    .btn-primary:hover:not(:disabled) { background: #f0d47a; transform: translateY(-1px); }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    @media (max-width: 600px) {
+      .form-row { grid-template-columns: 1fr; }
+      .header-inner { gap: 10px; }
+      .logo span { display: none; }
+      .btn-io span { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">Vault <span>/ My Inventory</span></div>
+    <div class="search-wrap">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+      </svg>
+      <input id="searchInput" type="text" placeholder="Search your collection…"/>
+    </div>
+    <div class="sync-dot" id="syncDot" title="Sync status"></div>
+    <button class="btn-io" onclick="exportData()" title="Export backup">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span>Export</span>
+    </button>
+    <button class="btn-add" onclick="openModal()">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      Add Item
+    </button>
+  </div>
+</header>
+
+<div class="toast" id="toast"></div>
+
+<div class="container">
+  <div class="stats-bar" id="statsBar"></div>
+  <div class="sort-bar">
+    <span class="sort-label">Sort:</span>
+    <button class="sort-btn active" data-sort="date">Recent</button>
+    <button class="sort-btn" data-sort="title">A–Z</button>
+    <span class="results-count" id="resultsCount"></span>
+  </div>
+  <div class="grid" id="grid">
+    <div class="loading"><div class="spinner"></div>Connecting to your vault…</div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="handleOverlayClick(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Add New Item</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div>
+        <label>Category</label>
+        <div class="category-tabs">
+          <button class="cat-tab" data-cat="film" style="--tab-color:var(--film)" onclick="selectCat('film')">🎬 Film / TV</button>
+          <button class="cat-tab" data-cat="book" style="--tab-color:var(--book)" onclick="selectCat('book')">📚 Book</button>
+          <button class="cat-tab" data-cat="doc"  style="--tab-color:var(--doc)"  onclick="selectCat('doc')">📄 Document</button>
+          <button class="cat-tab" data-cat="item" style="--tab-color:var(--item)" onclick="selectCat('item')">📦 Item</button>
+        </div>
+      </div>
+      <div>
+        <label>Title *</label>
+        <input type="text" id="fTitle" placeholder="e.g. The Godfather, Dune, Invoice 2024…"/>
+      </div>
+      <div>
+        <label id="creatorLabel">Author / Director</label>
+        <input type="text" id="fCreator" placeholder="e.g. Francis Ford Coppola"/>
+      </div>
+      <div class="form-row">
+        <div>
+          <label>Year</label>
+          <input type="number" id="fYear" placeholder="e.g. 1972" min="1800" max="2100"/>
+        </div>
+        <div>
+          <label>Status</label>
+          <select id="fStatus">
+            <option value="">— select —</option>
+            <option>Watched</option>
+            <option>Want to watch</option>
+            <option>Watching</option>
+            <option>Read</option>
+            <option>Reading</option>
+            <option>Want to read</option>
+            <option>Owned</option>
+            <option>Lent out</option>
+            <option>Archived</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Genre / Tags</label>
+        <input type="text" id="fTags" placeholder="e.g. Thriller, Sci-fi, Invoice"/>
+      </div>
+      <div>
+        <label>URL</label>
+        <input type="text" id="fURL" placeholder="e.g. https://www.imdb.com/title/…"/>
+      </div>
+      <div id="fieldProducer" style="display:none">
+        <label>Producer</label>
+        <input type="text" id="fProducer" placeholder="e.g. Steven Spielberg"/>
+      </div>
+      <div id="fieldBook" style="display:none">
+        <div class="form-row">
+          <div>
+            <label>Publisher</label>
+            <input type="text" id="fPublisher" placeholder="e.g. Penguin Books"/>
+          </div>
+          <div>
+            <label>ISBN</label>
+            <input type="text" id="fISBN" placeholder="e.g. 978-3-16-148410-0"/>
+          </div>
+        </div>
+      </div>
+      <div>
+        <label>Notes</label>
+        <textarea id="fNotes" placeholder="Any extra details, thoughts, location…"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" id="saveBtn" onclick="saveItem()">Save Item</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── SUPABASE SETUP ────────────────────────────────────
+  const SUPABASE_URL = 'https://jikhpewxfwwaqjnylvjv.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imppa2hwZXd4Znd3YXFqbnlsdmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzExNTI0MTAsImV4cCI6MjA4NjcyODQxMH0.Z1m_v9I-iGLaGhSgTo89INFVHDw1MaQLigwab0K0Fq0';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── STATE ─────────────────────────────────────────────
+  let items = [];
+  let editingId = null;
+  let currentCat = 'film';
+  let activeFilter = 'all';
+  let activeSort = 'date';
+
+  const CAT_META = {
+    film: { label:'Film/TV',  color:'var(--film)', emoji:'🎬' },
+    book: { label:'Book',     color:'var(--book)', emoji:'📚' },
+    doc:  { label:'Document', color:'var(--doc)',  emoji:'📄' },
+    item: { label:'Item',     color:'var(--item)', emoji:'📦' },
+  };
+
+  const STATUS_COLORS = {
+    'Watched':'#6d8fe8','Read':'#6dc98a','Owned':'#e8c76d',
+    'Want to watch':'#a0a0a0','Want to read':'#a0a0a0',
+    'Watching':'#c97d4e','Reading':'#c97d4e',
+    'Lent out':'#c96d9a','Archived':'#4a4840','Other':'#7a7567',
+  };
+
+  // ── SYNC DOT ──────────────────────────────────────────
+  function setSyncDot(state) {
+    const d = document.getElementById('syncDot');
+    d.className = 'sync-dot ' + state;
+    d.title = { syncing:'Saving…', ok:'All changes saved ✓', error:'Connection error' }[state] || '';
+  }
+
+  // ── DATABASE OPERATIONS ───────────────────────────────
+  async function loadItems() {
+    setSyncDot('syncing');
+    const { data, error } = await db
+      .from('items')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) {
+      setSyncDot('error');
+      showToast('❌ Could not load: ' + error.message);
+      document.getElementById('grid').innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><h3>Connection error</h3><p>${error.message}</p></div>`;
+      return;
+    }
+    items = data || [];
+    setSyncDot('ok');
+    render();
+  }
+
+  async function insertItem(payload) {
+    setSyncDot('syncing');
+    const { data, error } = await db.from('items').insert([payload]).select().single();
+    if (error) { setSyncDot('error'); showToast('❌ Save failed: ' + error.message); return null; }
+    setSyncDot('ok');
+    return data;
+  }
+
+  async function updateItem(id, payload) {
+    setSyncDot('syncing');
+    const { error } = await db.from('items').update(payload).eq('id', id);
+    if (error) { setSyncDot('error'); showToast('❌ Update failed: ' + error.message); return false; }
+    setSyncDot('ok');
+    return true;
+  }
+
+  async function removeItem(id) {
+    setSyncDot('syncing');
+    const { error } = await db.from('items').delete().eq('id', id);
+    if (error) { setSyncDot('error'); showToast('❌ Delete failed: ' + error.message); return false; }
+    setSyncDot('ok');
+    return true;
+  }
+
+  // ── REAL-TIME SYNC ────────────────────────────────────
+  // Any change made on any device automatically refreshes all connected devices
+  db.channel('items-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
+      loadItems();
+    })
+    .subscribe();
+
+  // ── RENDER ────────────────────────────────────────────
+  function render() { renderStats(); renderGrid(); }
+
+  function renderStats() {
+    const counts = { film:0, book:0, doc:0, item:0 };
+    items.forEach(i => { if (counts[i.cat] !== undefined) counts[i.cat]++; });
+    let html = `<div class="stat-pill ${activeFilter==='all'?'active':''}" style="--pill-color:var(--accent)" onclick="setFilter('all')">
+      <div class="stat-dot"></div> All <span class="stat-count">${items.length}</span></div>`;
+    Object.entries(CAT_META).forEach(([k,v]) => {
+      html += `<div class="stat-pill ${activeFilter===k?'active':''}" style="--pill-color:${v.color}" onclick="setFilter('${k}')">
+        <div class="stat-dot" style="background:${v.color}"></div> ${v.label}
+        <span class="stat-count">${counts[k]||0}</span></div>`;
+    });
+    document.getElementById('statsBar').innerHTML = html;
+  }
+
+  function renderGrid() {
+    const q = document.getElementById('searchInput').value.toLowerCase();
+    let list = items.filter(i => {
+      const matchCat = activeFilter === 'all' || i.cat === activeFilter;
+      const matchQ   = !q ||
+        (i.title||'').toLowerCase().includes(q) ||
+        (i.creator||'').toLowerCase().includes(q) ||
+        (i.tags||'').toLowerCase().includes(q) ||
+        (i.notes||'').toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+
+    if (activeSort === 'title') list.sort((a,b) => (a.title||'').localeCompare(b.title||''));
+
+    document.getElementById('resultsCount').textContent =
+      list.length === items.length ? `${items.length} items` : `${list.length} of ${items.length}`;
+
+    const grid = document.getElementById('grid');
+    if (!list.length) {
+      grid.innerHTML = `<div class="empty">
+        <div class="empty-icon">${items.length ? '🔍' : '📭'}</div>
+        <h3>${items.length ? 'No results found' : 'Your vault is empty'}</h3>
+        <p>${items.length ? 'Try a different search or filter.' : 'Click "+ Add Item" to start building your collection!'}</p>
+      </div>`;
+      return;
+    }
+
+    grid.innerHTML = list.map(item => {
+      const meta = CAT_META[item.cat] || CAT_META.item;
+      const sc   = STATUS_COLORS[item.status] || 'var(--text-muted)';
+      return `<div class="card" style="--card-color:${meta.color}">
+        <div class="card-thumb">
+          <span>${meta.emoji}</span>
+          <div class="card-category">${meta.label}</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">${esc(item.title)}</div>
+          <div class="card-meta">
+            ${item.creator   ? `<span>✦ ${esc(item.creator)}</span>` : ''}
+            ${item.producer  ? `<span>🎥 ${esc(item.producer)}</span>` : ''}
+            ${item.publisher ? `<span>🏢 ${esc(item.publisher)}</span>` : ''}
+            ${item.isbn      ? `<span>ISBN: ${esc(item.isbn)}</span>` : ''}
+            ${item.year      ? `<span>📅 ${esc(item.year)}</span>` : ''}
+            ${item.tags      ? `<span>🏷 ${esc(item.tags)}</span>` : ''}
+          </div>
+          ${item.notes ? `<div class="card-notes">${esc(item.notes)}</div>` : ''}
+        </div>
+        <div class="card-footer">
+          ${item.status ? `<span class="status-badge" style="color:${sc};border-color:${sc};background:${sc}18">${esc(item.status)}</span>` : '<span></span>'}
+          <div class="card-footer-actions">
+            ${item.url ? `<a class="icon-btn" href="${esc(item.url)}" target="_blank" rel="noopener" title="Open URL">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>` : ''}
+            <button class="icon-btn" title="Edit" onclick="editItem('${item.id}')">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button class="icon-btn delete" title="Delete" onclick="deleteItem('${item.id}')">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── FILTER / SORT ─────────────────────────────────────
+  function setFilter(f) { activeFilter = f; render(); }
+
+  document.querySelectorAll('.sort-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSort = btn.dataset.sort;
+      renderGrid();
+    });
+  });
+
+  document.getElementById('searchInput').addEventListener('input', renderGrid);
+
+  // ── MODAL ─────────────────────────────────────────────
+  function openModal() {
+    editingId = null;
+    document.getElementById('modalTitle').textContent = 'Add New Item';
+    ['fTitle','fCreator','fYear','fStatus','fTags','fURL','fNotes','fProducer','fPublisher','fISBN']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    selectCat('film');
+    document.getElementById('modalOverlay').classList.add('open');
+    setTimeout(() => document.getElementById('fTitle').focus(), 100);
+  }
+
+  function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+  function handleOverlayClick(e) { if (e.target.id === 'modalOverlay') closeModal(); }
+
+  function selectCat(cat) {
+    currentCat = cat;
+    document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('selected'));
+    document.querySelector(`.cat-tab[data-cat="${cat}"]`).classList.add('selected');
+    const labels = { film:'Director / Creator', book:'Author', doc:'Author / Source', item:'Brand / Maker' };
+    document.getElementById('creatorLabel').textContent = labels[cat] || 'Creator';
+    document.getElementById('fieldProducer').style.display = cat === 'film' ? '' : 'none';
+    document.getElementById('fieldBook').style.display     = cat === 'book' ? '' : 'none';
+  }
+
+  async function saveItem() {
+    const title = document.getElementById('fTitle').value.trim();
+    if (!title) { document.getElementById('fTitle').focus(); return; }
+
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    const payload = {
+      cat:       currentCat,
+      title,
+      creator:   document.getElementById('fCreator').value.trim(),
+      year:      document.getElementById('fYear').value.trim(),
+      status:    document.getElementById('fStatus').value,
+      tags:      document.getElementById('fTags').value.trim(),
+      notes:     document.getElementById('fNotes').value.trim(),
+      url:       document.getElementById('fURL').value.trim(),
+      producer:  currentCat === 'film' ? document.getElementById('fProducer').value.trim() : '',
+      publisher: currentCat === 'book' ? document.getElementById('fPublisher').value.trim() : '',
+      isbn:      currentCat === 'book' ? document.getElementById('fISBN').value.trim() : '',
+    };
+
+    if (editingId) {
+      const ok = await updateItem(editingId, payload);
+      if (ok) { showToast('✅ Item updated!'); closeModal(); await loadItems(); }
+    } else {
+      const result = await insertItem(payload);
+      if (result) { showToast('✅ Item added!'); closeModal(); await loadItems(); }
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save Item';
+  }
+
+  function editItem(id) {
+    const item = items.find(i => String(i.id) === String(id));
+    if (!item) return;
+    editingId = id;
+    document.getElementById('modalTitle').textContent = 'Edit Item';
+    selectCat(item.cat || 'film');
+    document.getElementById('fTitle').value     = item.title     || '';
+    document.getElementById('fCreator').value   = item.creator   || '';
+    document.getElementById('fYear').value      = item.year      || '';
+    document.getElementById('fStatus').value    = item.status    || '';
+    document.getElementById('fTags').value      = item.tags      || '';
+    document.getElementById('fNotes').value     = item.notes     || '';
+    document.getElementById('fURL').value       = item.url       || '';
+    document.getElementById('fProducer').value  = item.producer  || '';
+    document.getElementById('fPublisher').value = item.publisher || '';
+    document.getElementById('fISBN').value      = item.isbn      || '';
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  async function deleteItem(id) {
+    if (!confirm('Delete this item?')) return;
+    const ok = await removeItem(id);
+    if (ok) { showToast('🗑 Item deleted.'); await loadItems(); }
+  }
+
+  // ── EXPORT BACKUP ─────────────────────────────────────
+  function exportData() {
+    const blob = new Blob([JSON.stringify(items, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `vault-inventory-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('✅ Backup exported!');
+  }
+
+  // ── TOAST ─────────────────────────────────────────────
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  // ── INIT ──────────────────────────────────────────────
+  loadItems();
+</script>
+</body>
+</html>
